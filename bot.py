@@ -7,7 +7,8 @@ import aiohttp
 import discord
 from discord.ext import commands
 
-from vibecheck.config import DB_PATH, DISCORD_TOKEN, RIOT_API_KEY
+from vibecheck.config import DB_PATH, DISCORD_TOKEN, LCU_ENABLED, RIOT_API_KEY
+from vibecheck.lcu_watcher import LCUWatcher
 from vibecheck.poller import Poller
 from vibecheck.riot import RiotClient
 from vibecheck.store import GameStore
@@ -23,6 +24,8 @@ class VibeCheckBot(commands.Bot):
         self.store = GameStore(DB_PATH)
         self.riot: RiotClient | None = None
         self.poller = Poller(self)
+        # Local capture is opt-in and only makes sense on the player's own machine.
+        self.lcu = LCUWatcher(self) if LCU_ENABLED else None
 
     async def setup_hook(self):
         self.riot = RiotClient(aiohttp.ClientSession())
@@ -31,9 +34,14 @@ class VibeCheckBot(commands.Bot):
             await self.load_extension(ext)
         await self.tree.sync()
         self.poller.start()
+        if self.lcu:
+            self.lcu.start()
+            log.info("Local LCU capture enabled — Mayhem and customs included.")
         log.info("VibeCheck is running. Winrate is temporary; the vibes are forever.")
 
     async def close(self):
+        if self.lcu:
+            await self.lcu.close()
         if self.riot:
             await self.riot._session.close()
         self.store.close()

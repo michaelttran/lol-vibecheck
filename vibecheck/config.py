@@ -11,6 +11,18 @@ DB_PATH = Path(os.environ.get("VIBECHECK_DB", "vibecheck.sqlite3"))
 # How often the background poller sweeps each linked player's match history.
 POLL_INTERVAL_SECONDS = int(os.environ.get("VIBECHECK_POLL_SECONDS", "120"))
 
+# --- Local capture (macOS + Windows) -----------------------------------------
+# Opt-in: only useful when the bot runs on the same machine as the League client.
+# Reads the client's own LCU API, which sees games the public API hides
+# (ARAM: Mayhem returns 403 on match-v5; custom lobbies need RSO since 2024).
+LCU_ENABLED = os.environ.get("VIBECHECK_LCU", "").strip().lower() in {"1", "true", "yes", "on"}
+
+# Gameflow polling is local and cheap — seconds, not minutes.
+LCU_POLL_SECONDS = int(os.environ.get("VIBECHECK_LCU_POLL_SECONDS", "5"))
+
+# Only needed for a non-default League install; otherwise discovered automatically.
+LCU_LOCKFILE = os.environ.get("VIBECHECK_LCU_LOCKFILE", "")
+
 # On first link, how far back to import (mirrors the desktop app's "3h max, no deep backfill").
 FIRST_LINK_LOOKBACK_SECONDS = 3 * 3600
 
