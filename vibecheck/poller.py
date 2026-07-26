@@ -72,9 +72,10 @@ class Poller:
             store.set_watermark(player["discord_user_id"], match_ids[0])
         # Prompt only for the newest; older imports wait in To Rate (PRD F6).
         if newest_game_id:
-            await self._send_prompt(player, newest_game_id)
+            await self.send_prompt(player, newest_game_id)
 
-    async def _send_prompt(self, player, game_id):
+    async def send_prompt(self, player, game_id):
+        """Shared by the poller and the LCU watcher — both prompt the same way."""
         game = self.bot.store.get_game(game_id)
         embed, view = rating_embed(game), rating_view(game_id)
         dest = None
