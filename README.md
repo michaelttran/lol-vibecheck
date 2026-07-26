@@ -183,6 +183,7 @@ curl -s -H "X-Riot-Token: $RIOT_API_KEY" \
 | `/torate` **has** games but no DM arrived | Discord is blocking DMs | Allow DMs for that server, or `/setchannel` |
 | Games older than 3h never import | By design — first sweep looks back 3h only | Play a new game; no deep backfill |
 | Matchmade games import, Mayhem/customs don't | Riot hides those from the API | Enable local capture (`VIBECHECK_LCU=1`) |
+| `LCU saw a game ... but no linked player matches` | The client's Riot ID isn't linked | `/link` with the exact Riot ID shown in the log |
 
 Two log lines at startup are **harmless**: `PyNaCl is not installed` (voice, unused)
 and `Privileged message content intent is missing` (slash commands don't need it).

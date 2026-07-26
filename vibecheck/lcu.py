@@ -156,9 +156,16 @@ def _riot_id(player: dict) -> str:
     return f"{name}#{tag}"
 
 
-def normalize_eog(eog: dict, puuid: str, platform_id: str):
-    """eog-stats-block -> (game, participants), matching riot.normalize()'s shape."""
+def normalize_eog(eog: dict, puuid: str, platform_id: str, store_puuid: str = ""):
+    """eog-stats-block -> (game, participants), matching riot.normalize()'s shape.
+
+    `puuid` identifies the local player inside the payload; `store_puuid` is what
+    the game is filed under. They differ when the client reports a different (or
+    obfuscated) puuid than account-v1 gave us at /link time — the record has to
+    stay keyed to the linked puuid or every stats query would miss it.
+    """
     try:
+        store_puuid = store_puuid or puuid
         game_id = eog.get("gameId")
         if not game_id:
             return None, []
@@ -171,7 +178,7 @@ def normalize_eog(eog: dict, puuid: str, platform_id: str):
         duration = int(eog.get("gameLength") or 0)
         ended = datetime.now(timezone.utc)
         game = {
-            "puuid": puuid,
+            "puuid": store_puuid,
             # Same id shape as match-v5 so a later poll dedupes instead of duplicating.
             "riot_match_id": f"{platform_id.upper()}_{game_id}",
             "played_at": (ended - timedelta(seconds=duration)).isoformat(),
@@ -190,11 +197,12 @@ def normalize_eog(eog: dict, puuid: str, platform_id: str):
             "is_remake": int(bool(stats.get("GAME_ENDED_IN_EARLY_SURRENDER"))),
             "raw_payload": eog,
         }
+        mine = {puuid, store_puuid}
         participants = []
         for team in teams:
             same = int(bool(team.get("isPlayerTeam")))
             for p in team.get("players") or []:
-                if p.get("puuid") and p["puuid"] != puuid:
+                if p.get("puuid") and p["puuid"] not in mine:
                     participants.append(
                         {"puuid": p["puuid"], "riot_id": _riot_id(p), "same_team": same}
                     )
@@ -204,9 +212,10 @@ def normalize_eog(eog: dict, puuid: str, platform_id: str):
         return None, []
 
 
-def normalize_history(match: dict, puuid: str, platform_id: str):
+def normalize_history(match: dict, puuid: str, platform_id: str, store_puuid: str = ""):
     """LCU match-history game -> (game, participants). Fallback when eog is gone."""
     try:
+        store_puuid = store_puuid or puuid
         game_id = match.get("gameId")
         if not game_id:
             return None, []
@@ -227,7 +236,7 @@ def normalize_history(match: dict, puuid: str, platform_id: str):
             if created else datetime.now(timezone.utc) - timedelta(seconds=duration)
         )
         game = {
-            "puuid": puuid,
+            "puuid": store_puuid,
             "riot_match_id": f"{platform_id.upper()}_{game_id}",
             "played_at": played_at.isoformat(),
             "queue_id": match.get("queueId"),
@@ -246,11 +255,12 @@ def normalize_history(match: dict, puuid: str, platform_id: str):
             "raw_payload": match,
         }
         my_team_id = me.get("teamId")
+        mine = {puuid, store_puuid}
         participants = []
         for i, ident in enumerate(idents):
             player = ident.get("player") or {}
             p_puuid = player.get("puuid")
-            if not p_puuid or p_puuid == puuid:
+            if not p_puuid or p_puuid in mine:
                 continue
             team_id = parts[i].get("teamId") if i < len(parts) else None
             name = player.get("gameName") or player.get("summonerName") or "?"

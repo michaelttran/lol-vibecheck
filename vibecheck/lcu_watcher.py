@@ -20,6 +20,11 @@ from .lcu import END_PHASES, LCUClient, normalize_eog, normalize_history, resolv
 log = logging.getLogger(__name__)
 
 
+def _key(name) -> str:
+    """Riot matches IDs ignoring case and spaces — 'Toilet Paper' == 'ToiletPaper'."""
+    return (name or "").replace(" ", "").casefold()
+
+
 class LCUWatcher:
     def __init__(self, bot):
         self.bot = bot
@@ -88,33 +93,60 @@ class LCUWatcher:
         except Exception:  # noqa: BLE001 — a bad tick must never kill the loop
             log.exception("LCU watcher tick failed")
 
+    def _match_player(self, summoner: dict):
+        """Find the linked row for whoever is logged into the client.
+
+        The client doesn't always report the same puuid account-v1 gave us at
+        /link time, so fall back to the Riot ID before giving up.
+        """
+        puuid = summoner.get("puuid") or ""
+        if puuid:
+            rows = self.bot.store.players_by_puuids([puuid])
+            if rows:
+                return rows[0]
+        name, tag = _key(summoner.get("gameName")), _key(summoner.get("tagLine"))
+        if not name:
+            return None
+        for row in self.bot.store.all_players():
+            if _key(row["game_name"]) == name and (not tag or _key(row["tag_line"]) == tag):
+                log.info("matched %s#%s by Riot ID (client puuid differs from the linked one)",
+                         row["game_name"], row["tag_line"])
+                return row
+        return None
+
     async def _capture(self):
         summoner = await self.client.current_summoner() or {}
-        puuid = summoner.get("puuid")
-        if not puuid:
-            return
-        rows = self.bot.store.players_by_puuids([puuid])
-        if not rows:
+        puuid = summoner.get("puuid") or ""
+        player = self._match_player(summoner)
+        if not player:
             if not self._warned_unlinked:
                 log.warning(
-                    "LCU saw a game for %s but no Discord user has /link'd that account.",
-                    summoner.get("gameName") or puuid[:8],
+                    "LCU saw a game for %s#%s (puuid %s...) but no linked player matches. "
+                    "Run /link with that exact Riot ID.",
+                    summoner.get("gameName") or "?", summoner.get("tagLine") or "?",
+                    puuid[:12] or "none",
                 )
                 self._warned_unlinked = True
             return
-        player = rows[0]
+        self._warned_unlinked = False
 
         # The eog block is the richest source but disappears once the player clicks
         # past the post-game screen, so fall back to the client's match history.
+        # Games are always filed under the linked puuid, whatever the client reports,
+        # or the stats commands would never find them.
         eog = await self.client.eog_stats()
         if eog and eog.get("gameId"):
-            game, participants = normalize_eog(eog, puuid, player["platform"] or "")
+            game, participants = normalize_eog(
+                eog, puuid, player["platform"] or "", player["puuid"]
+            )
         else:
             match = await self.client.recent_match()
             if not match:
                 log.warning("game ended but the client returned no stats — skipped.")
                 return
-            game, participants = normalize_history(match, puuid, player["platform"] or "")
+            game, participants = normalize_history(
+                match, puuid, player["platform"] or "", player["puuid"]
+            )
         if not game:
             return
 
